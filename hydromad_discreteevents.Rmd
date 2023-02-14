@@ -1,0 +1,614 @@
+---
+title: "Sirin_2011"
+author: "Grace Pang"
+date: "2023-02-02"
+output:
+  html_document:
+    code_folding: show
+    toc: yes
+    toc_float: yes
+    theme: flatly
+  pdf_document:
+    toc: yes
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+TRYING OUT WITH HYDROMAD 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE) 
+```
+
+# Setup 
+## Load data packages
+```{r library}
+library(tidyverse) # manipulate & plot data
+library(car) # data analysis
+library(emmeans) # descriptive stats
+library(lme4) # mixed effects models
+library(lmerTest) # to get p-values from mixed effects models
+library("readxl") # read excel 
+library(ggthemes) # colour palettes
+library (ggeffects) # plotting estimated marginal means 
+library(MuMIn) #for model selection 
+library(vegan) #nmds
+
+library(ggrepel) #for adding labels on my plot  
+
+# CORRECTIONS 
+# Packages
+library(tidyverse) # manipulate & plot data
+library(car) # data analysis
+library(emmeans) # descriptive stats
+library(lme4) # mixed effects models
+library(lmerTest) # to get p-values from mixed effects models
+
+# "Make it pretty" set up
+library(patchwork) # to organise plots
+library(gghalves) # raincloud plot :)
+
+## Custom colour palettes :)
+library(ggthemes) 
+library(ggsci)
+library(ghibli)
+
+    library(tidyverse) # manipulate & plot data
+    library(dplyr)
+    library(car) # data analysis
+    library(emmeans) # descriptive stats
+    library(gghalves) # raincloud plot :)
+    
+    library("ggpubr") # for stats test
+
+library(lubridate) # for converting date / date time tihngs 
+
+#HYDROLOGY 
+library("hydroTSM") 
+library(lattice)
+library(zoo) 
+library(IETD) #inter-event time definition
+
+# HYDROMAD 
+library(zoo)
+library(latticeExtra)
+library(polynom)
+library(Hmisc)
+library(reshape)
+require(devtools) 
+library(remotes)
+# install_github("josephguillaume/hydromad")
+
+library(package = "hydromad")
+help("hydromad")
+library(openxlsx) #to save to excel
+
+```
+
+
+Identifying eventseq
+https://hydromad.catchment.org/man/eventseq.html from https://hydromad.catchment.org/#eventseq
+```{r Sequence}
+data(Queanbeyan)
+## wet period
+x <- window(Queanbeyan, start = "1974-01-01", end = "1976-12-01")
+
+evp <- eventseq(x$P, thresh = 5, inthresh = 1, indur = 4, continue = TRUE) 
+#x$P is the zoo of date and ppt , threshold = value must be above 5 // inthresh = when events stop after the first threshold // indur = sereis must remain below th einthresh for this many time steps in order to stop an event // continue = TRUE to extend each event until following event, 
+#evp= zoo, with daily date.time. and evp. 
+evq <- eventseq(x$Q, thresh = 2, indur = 4, mingap = 5)
+#	mingap: the minimum number of time steps that can separate events. Any inter-event durations shorter than this will be subsumed into the surrounding event.
+
+nlevels(evp) ## number of events
+nlevels(evq)
+str(evq)
+table(coredata(evq))
+eventapply(x$Q, evq, FUN = sum)
+eventapply(x, evq, FUN = mean)
+eventinfo(x$Q, evq)
+
+evplot <- xyplot(x) + 
+  layer_(panel.xblocks(evp, col = c("grey90", "grey80"), border = "grey80")) +
+  layer(panel.xblocks(evq, block.y = 0, vjust = 1, col = 1))
+evplot
+
+update(evplot, type = "s",
+    xlim = as.Date(c("1990-07-01", "1990-08-31"))) +
+  layer(panel.abline(h = c(5,1), lty = 2), packets = 1)
+
+## example of requesting a threshold giving about 'n' events
+set.seed(0)
+ee <- eventseq(rnorm(100), n = 10, mingap = 2)
+nlevels(ee)
+attr(ee, "thresh")
+
+
+
+
+```
+
+## 
+## example of classifying events based on hydro properties
+##
+```{r}
+data(Queanbeyan)
+x <- window(Queanbeyan, start = "1974-01-01", end = "1976-12-01")
+e <- eventseq(x$P, thresh = 5, inthresh = 1, indur = 4, continue = TRUE)
+
+
+## classify events based on max flow
+qclass <- cut(ave(coredata(x$Q), coredata(e), FUN = max),
+              c(0, 0.5, 1, Inf))
+qclass <- zoo(qclass, time(x))
+
+## Classify events based on antecedent flow
+x <- merge(x, Q1 = lag(x$Q, 1), all = c(TRUE, FALSE))
+head1 <- function(z) z[1]
+q1class <- cut(ave(coredata(x$Q1), coredata(e), FUN = head1),
+               c(0, 0.2, 0.3, Inf))
+q1class <- zoo(q1class, time(x))
+
+## combined classification
+combin <- factor(paste("M", unclass(qclass), "_A", unclass(q1class), sep =""))
+combin <- zoo(combin, time(x))
+
+## check results
+head(data.frame(x, event = unclass(e), qclass, q1class, combin), 50)
+
+## number of events in each class
+each.e <- !duplicated(e)
+table(coredata(combin[each.e]))
+```
+
+
+[EH like not needed]
+Testing out the tutorial here 
+https://hydromad.catchment.org/downloads/tutorial.pdf
+```{r}
+data1 <-  data(Cotter)
+data1
+
+#To plot the raw (daily) time series:
+xyplot(Cotter)
+#To plot a section of the time series:
+xyplot(window(Cotter, start = "1974-01-01", end = "1975-01-01"))
+# time series aggregated to a monthly time step:
+ monthlyPQE <- aggregate(Cotter, as.yearmon, mean)
+ xyplot(monthlyPQE, screens = c("Streamflow (mm/day)",
+"Areal rain (mm/day)", "Temperature (deg. C)"),
+xlab = NULL)
+```
+
+
+Testing out on my work 
+
+```{r iRL: loading docs}
+SGR100_ev <- read_excel("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/9 Output data/W4_excel_Sirin_yearly_evaporation/4.1_S_evaporation_GR100.xls")
+str(SGR100_ev)
+head(SGR100_ev)
+
+# W3.2_S_GR50.xls
+SGR50_ev <- read_excel("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/9 Output data/W4_excel_Sirin_yearly_evaporation/4.2_S_evaporation_GR50.xls")
+str(SGR50_ev)
+head(SGR50_ev)
+
+Snone_ev <- read_excel("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/9 Output data/W4_excel_Sirin_yearly_evaporation/4.0_S_evaporation_NONE.xls")
+str(Snone_ev)
+head(Snone_ev)
+
+SGRPP100_ev <- read_excel("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/9 Output data/W4_excel_Sirin_yearly_evaporation/4.7_S_evaporation_GRPP100.xls")
+str(SGRPP100_ev)
+head(SGRPP100_ev)
+
+SGRPP50_ev <- read_excel("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/9 Output data/W4_excel_Sirin_yearly_evaporation/4.8_S_evaporation_GRPP50.xls")
+str(SGRPP50_ev)
+head(SGRPP50_ev)
+
+
+SPP100_ev <- read_excel("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/9 Output data/W4_excel_Sirin_yearly_evaporation/4.3_S_evaporation_PP100.xls")
+str(SPP100_ev)
+head(SPP100_ev)
+
+SPP50_ev<- read_excel("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/9 Output data/W4_excel_Sirin_yearly_evaporation/4.4_S_evaporation_PP50.xls")
+str(SPP50_ev)
+head(SPP50_ev)
+
+SRG100_ev <- read_excel("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/9 Output data/W4_excel_Sirin_yearly_evaporation/4.5_S_evaporation_RG50.xls")
+str(SRG100_ev)
+head(SRG100_ev)
+
+SRG50_ev <- read_excel("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/9 Output data/W4_excel_Sirin_yearly_evaporation/4.5_S_evaporation_RG100.xls")
+str(SRG50_ev)
+head(SRG50_ev)
+```
+
+Converting to class zoo
+
+```{r}
+dfSnone_ev <- data.frame(Snone_ev$`Date/Time`, Snone_ev$Rainfall, Snone_ev$`Total inflow`)
+zSnone_ev <- read.zoo(dfSnone_ev)
+class(zSnone_ev)
+head(zSnone_ev)
+```
+TRYING OUT ON MY DATASET!! 
+!! data= Snone_ev
+// rainhigh event + hours duration 
+// rainlow event + hour duration 
+
+progress check 
+/ ok, got the number of events. 
+/ BUT idk how to proceed... 
+```{r Trying out on my dataset}
+rainhigh <- eventseq(zSnone_ev$Snone_ev.Rainfall, 
+                     thresh = 10, inthresh = 9, indur = 2, mingap = 6)
+nlevels(rainhigh) #number of events 
+str(rainhigh)
+table(coredata(rainhigh)) #coredata extract the core data
+#df$date <- as.Date(df$date, origin="2020-01-01")
+#convert to df with 
+
+rainlow <- eventseq(zSnone_ev$Snone_ev.Rainfall, thresh = 1, indur = 2, mingap = 6)
+nlevels(rainlow) #number of events 
+str(rainlow)
+table(coredata(rainlow))
+
+#eventapply(x$Q, evq, FUN = sum)
+eventapply(Snone_ev$Rainfall, rainhigh, FUN = sum)
+```
+
+Getting the runoff reduction for the high rainfall event
+- probably gg to hard code it... 
+
+OUTPUTS
+// event_highrain_SRG50_ev x7, changing Snone_ev... : contains event datetime, duration, event rain, event outflow 
+// COMBINED TABLE: event_highrain_ALL
+// HIGH RAIN REDUCTION BY EACH NBS: reduction_highrain
+
+
+```{r Getting event outflow for each scenario for the high rainfall event }
+#UNIVERSAL 
+rainhigh11events <- Snone_ev %>% 
+    filter(Rainfall>=10) %>% 
+    arrange(desc(Rainfall))  %>% 
+    slice(1,4,7,10,13,16,19,22,25,28,29)
+# Getting the data/time and hours for the table set up 
+rainhigh10events <- Snone_ev %>% 
+    filter(Rainfall>=10) %>% 
+    arrange(desc(Rainfall))  %>% 
+    slice(1,4,7,10,13,19,22,25,29,28) %>% 
+    select(`Date/Time`) %>% 
+    mutate(Hours=c(7,4,4,4,4,4,4,4,4,2))
+
+#SPECIFIC 
+#SNONE_EV 
+  #Scenario: Filtering out relevant rows for summing later 
+  a <- Snone_ev %>% 
+    slice(4344:4350, 1950:1953, 2979:2982, 3222:3225, 4965:4968, 5730:5733, 3771:3774, 5901:5904, 6864:6867, 6727:6728) 
+  #Scenario: Getting the specific Rainfall and outflow for scenario
+  b <- data.frame (
+    EventRainfall_mm=c(sum(a$Rainfall[1:7]) , sum(a$Rainfall[8:11]), sum(a$Rainfall[12:15]), sum(a$Rainfall[16:19]), sum(a$Rainfall[20:23]), sum(a$Rainfall[24:27]), sum(a$Rainfall[28:31]), sum(a$Rainfall[32:35]), sum(a$Rainfall[36:39]), sum(a$Rainfall[40:41])), 
+    NoNBSOutflow_mms=c(sum(a$`Total inflow`[1:7]) , sum(a$`Total inflow`[8:11]), sum(a$`Total inflow`[12:15]), sum(a$`Total inflow`[16:19]), sum(a$`Total inflow`[20:23]), sum(a$`Total inflow`[24:27]), sum(a$`Total inflow`[28:31]), sum(a$`Total inflow`[32:35]), sum(a$`Total inflow`[36:39]), sum(a$`Total inflow`[40:41])))
+  #Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+  event_highrain <- cbind(rainhigh10events, b)
+  event_highrain
+  
+#SGR100_ev
+  #Scenario: Filtering out relevant rows for summing later 
+  a_SGR100_ev <- SGR100_ev %>% 
+    slice(4344:4350, 1950:1953, 2979:2982, 3222:3225, 4965:4968, 5730:5733, 3771:3774, 5901:5904, 6864:6867, 6727:6728) 
+  #Scenario: Getting the specific Rainfall and outflow for scenario
+  b_SGR100_ev <- data.frame (
+    EventRainfall_mm=c(sum(a_SGR100_ev$Rainfall[1:7]) , sum(a_SGR100_ev$Rainfall[8:11]), sum(a_SGR100_ev$Rainfall[12:15]), sum(a_SGR100_ev$Rainfall[16:19]), sum(a_SGR100_ev$Rainfall[20:23]), sum(a_SGR100_ev$Rainfall[24:27]), sum(a_SGR100_ev$Rainfall[28:31]), sum(a_SGR100_ev$Rainfall[32:35]), sum(a_SGR100_ev$Rainfall[36:39]), sum(a_SGR100_ev$Rainfall[40:41])), 
+    EventOutflow_mms=c(sum(a_SGR100_ev$`Total inflow`[1:7]) , sum(a_SGR100_ev$`Total inflow`[8:11]), sum(a_SGR100_ev$`Total inflow`[12:15]), sum(a_SGR100_ev$`Total inflow`[16:19]), sum(a_SGR100_ev$`Total inflow`[20:23]), sum(a_SGR100_ev$`Total inflow`[24:27]), sum(a_SGR100_ev$`Total inflow`[28:31]), sum(a_SGR100_ev$`Total inflow`[32:35]), sum(a_SGR100_ev$`Total inflow`[36:39]), sum(a_SGR100_ev$`Total inflow`[40:41])))
+  #Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+  event_highrain_SGR100_ev <- cbind(rainhigh10events, b_SGR100_ev)
+  event_highrain_SGR100_ev
+
+
+#SGR50_ev
+#Scenario: Filtering out relevant rows for summing later 
+a_SGR50_ev <- SGR50_ev %>% 
+  slice(4344:4350, 1950:1953, 2979:2982, 3222:3225, 4965:4968, 5730:5733, 3771:3774, 5901:5904, 6864:6867, 6727:6728) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+b_SGR50_ev <- data.frame (
+  EventRainfall_mm=c(sum(a_SGR50_ev$Rainfall[1:7]) , sum(a_SGR50_ev$Rainfall[8:11]), sum(a_SGR50_ev$Rainfall[12:15]), sum(a_SGR50_ev$Rainfall[16:19]), sum(a_SGR50_ev$Rainfall[20:23]), sum(a_SGR50_ev$Rainfall[24:27]), sum(a_SGR50_ev$Rainfall[28:31]), sum(a_SGR50_ev$Rainfall[32:35]), sum(a_SGR50_ev$Rainfall[36:39]), sum(a_SGR50_ev$Rainfall[40:41])), 
+  EventOutflow_mms=c(sum(a_SGR50_ev$`Total inflow`[1:7]) , sum(a_SGR50_ev$`Total inflow`[8:11]), sum(a_SGR50_ev$`Total inflow`[12:15]), sum(a_SGR50_ev$`Total inflow`[16:19]), sum(a_SGR50_ev$`Total inflow`[20:23]), sum(a_SGR50_ev$`Total inflow`[24:27]), sum(a_SGR50_ev$`Total inflow`[28:31]), sum(a_SGR50_ev$`Total inflow`[32:35]), sum(a_SGR50_ev$`Total inflow`[36:39]), sum(a_SGR50_ev$`Total inflow`[40:41])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_highrain_SGR50_ev <- cbind(rainhigh10events, b_SGR50_ev)
+event_highrain_SGR50_ev
+  
+
+#SGRPP100_ev
+#Scenario: Filtering out relevant rows for summing later 
+a_SGRPP100_ev <- SGRPP100_ev %>% 
+  slice(4344:4350, 1950:1953, 2979:2982, 3222:3225, 4965:4968, 5730:5733, 3771:3774, 5901:5904, 6864:6867, 6727:6728) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+b_SGRPP100_ev <- data.frame (
+  EventRainfall_mm=c(sum(a_SGRPP100_ev$Rainfall[1:7]) , sum(a_SGRPP100_ev$Rainfall[8:11]), sum(a_SGRPP100_ev$Rainfall[12:15]), sum(a_SGRPP100_ev$Rainfall[16:19]), sum(a_SGRPP100_ev$Rainfall[20:23]), sum(a_SGRPP100_ev$Rainfall[24:27]), sum(a_SGRPP100_ev$Rainfall[28:31]), sum(a_SGRPP100_ev$Rainfall[32:35]), sum(a_SGRPP100_ev$Rainfall[36:39]), sum(a_SGRPP100_ev$Rainfall[40:41])), 
+  EventOutflow_mms=c(sum(a_SGRPP100_ev$`Total inflow`[1:7]) , sum(a_SGRPP100_ev$`Total inflow`[8:11]), sum(a_SGRPP100_ev$`Total inflow`[12:15]), sum(a_SGRPP100_ev$`Total inflow`[16:19]), sum(a_SGRPP100_ev$`Total inflow`[20:23]), sum(a_SGRPP100_ev$`Total inflow`[24:27]), sum(a_SGRPP100_ev$`Total inflow`[28:31]), sum(a_SGRPP100_ev$`Total inflow`[32:35]), sum(a_SGRPP100_ev$`Total inflow`[36:39]), sum(a_SGRPP100_ev$`Total inflow`[40:41])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_highrain_SGRPP100_ev <- cbind(rainhigh10events, b_SGRPP100_ev)
+event_highrain_SGRPP100_ev
+
+#SGRPP50_ev
+#Scenario: Filtering out relevant rows for summing later 
+a_SGRPP50_ev <- SGRPP50_ev %>% 
+  slice(4344:4350, 1950:1953, 2979:2982, 3222:3225, 4965:4968, 5730:5733, 3771:3774, 5901:5904, 6864:6867, 6727:6728) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+b_SGRPP50_ev <- data.frame (
+  EventRainfall_mm=c(sum(a_SGRPP50_ev$Rainfall[1:7]) , sum(a_SGRPP50_ev$Rainfall[8:11]), sum(a_SGRPP50_ev$Rainfall[12:15]), sum(a_SGRPP50_ev$Rainfall[16:19]), sum(a_SGRPP50_ev$Rainfall[20:23]), sum(a_SGRPP50_ev$Rainfall[24:27]), sum(a_SGRPP50_ev$Rainfall[28:31]), sum(a_SGRPP50_ev$Rainfall[32:35]), sum(a_SGRPP50_ev$Rainfall[36:39]), sum(a_SGRPP50_ev$Rainfall[40:41])), 
+  EventOutflow_mms=c(sum(a_SGRPP50_ev$`Total inflow`[1:7]) , sum(a_SGRPP50_ev$`Total inflow`[8:11]), sum(a_SGRPP50_ev$`Total inflow`[12:15]), sum(a_SGRPP50_ev$`Total inflow`[16:19]), sum(a_SGRPP50_ev$`Total inflow`[20:23]), sum(a_SGRPP50_ev$`Total inflow`[24:27]), sum(a_SGRPP50_ev$`Total inflow`[28:31]), sum(a_SGRPP50_ev$`Total inflow`[32:35]), sum(a_SGRPP50_ev$`Total inflow`[36:39]), sum(a_SGRPP50_ev$`Total inflow`[40:41])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_highrain_SGRPP50_ev <- cbind(rainhigh10events, b_SGRPP50_ev)
+event_highrain_SGRPP50_ev
+
+
+#SPP100_ev
+#Scenario: Filtering out relevant rows for summing later 
+a_SPP100_ev <- SPP100_ev %>% 
+  slice(4344:4350, 1950:1953, 2979:2982, 3222:3225, 4965:4968, 5730:5733, 3771:3774, 5901:5904, 6864:6867, 6727:6728) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+b_SPP100_ev <- data.frame (
+  EventRainfall_mm=c(sum(a_SPP100_ev$Rainfall[1:7]) , sum(a_SPP100_ev$Rainfall[8:11]), sum(a_SPP100_ev$Rainfall[12:15]), sum(a_SPP100_ev$Rainfall[16:19]), sum(a_SPP100_ev$Rainfall[20:23]), sum(a_SPP100_ev$Rainfall[24:27]), sum(a_SPP100_ev$Rainfall[28:31]), sum(a_SPP100_ev$Rainfall[32:35]), sum(a_SPP100_ev$Rainfall[36:39]), sum(a_SPP100_ev$Rainfall[40:41])), 
+  EventOutflow_mms=c(sum(a_SPP100_ev$`Total inflow`[1:7]) , sum(a_SPP100_ev$`Total inflow`[8:11]), sum(a_SPP100_ev$`Total inflow`[12:15]), sum(a_SPP100_ev$`Total inflow`[16:19]), sum(a_SPP100_ev$`Total inflow`[20:23]), sum(a_SPP100_ev$`Total inflow`[24:27]), sum(a_SPP100_ev$`Total inflow`[28:31]), sum(a_SPP100_ev$`Total inflow`[32:35]), sum(a_SPP100_ev$`Total inflow`[36:39]), sum(a_SPP100_ev$`Total inflow`[40:41])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_highrain_SPP100_ev <- cbind(rainhigh10events, b_SPP100_ev)
+event_highrain_SPP100_ev
+
+#SPP50_ev
+#Scenario: Filtering out relevant rows for summing later 
+a_SPP50_ev <- SPP50_ev %>% 
+  slice(4344:4350, 1950:1953, 2979:2982, 3222:3225, 4965:4968, 5730:5733, 3771:3774, 5901:5904, 6864:6867, 6727:6728) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+b_SPP50_ev <- data.frame (
+  EventRainfall_mm=c(sum(a_SPP50_ev$Rainfall[1:7]) , sum(a_SPP50_ev$Rainfall[8:11]), sum(a_SPP50_ev$Rainfall[12:15]), sum(a_SPP50_ev$Rainfall[16:19]), sum(a_SPP50_ev$Rainfall[20:23]), sum(a_SPP50_ev$Rainfall[24:27]), sum(a_SPP50_ev$Rainfall[28:31]), sum(a_SPP50_ev$Rainfall[32:35]), sum(a_SPP50_ev$Rainfall[36:39]), sum(a_SPP50_ev$Rainfall[40:41])), 
+  EventOutflow_mms=c(sum(a_SPP50_ev$`Total inflow`[1:7]) , sum(a_SPP50_ev$`Total inflow`[8:11]), sum(a_SPP50_ev$`Total inflow`[12:15]), sum(a_SPP50_ev$`Total inflow`[16:19]), sum(a_SPP50_ev$`Total inflow`[20:23]), sum(a_SPP50_ev$`Total inflow`[24:27]), sum(a_SPP50_ev$`Total inflow`[28:31]), sum(a_SPP50_ev$`Total inflow`[32:35]), sum(a_SPP50_ev$`Total inflow`[36:39]), sum(a_SPP50_ev$`Total inflow`[40:41])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_highrain_SPP50_ev <- cbind(rainhigh10events, b_SPP50_ev)
+event_highrain_SPP50_ev
+
+#SRG100_ev
+#Scenario: Filtering out relevant rows for summing later 
+a_SRG100_ev <- SRG100_ev %>% 
+  slice(4344:4350, 1950:1953, 2979:2982, 3222:3225, 4965:4968, 5730:5733, 3771:3774, 5901:5904, 6864:6867, 6727:6728) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+b_SRG100_ev <- data.frame (
+  EventRainfall_mm=c(sum(a_SRG100_ev$Rainfall[1:7]) , sum(a_SRG100_ev$Rainfall[8:11]), sum(a_SRG100_ev$Rainfall[12:15]), sum(a_SRG100_ev$Rainfall[16:19]), sum(a_SRG100_ev$Rainfall[20:23]), sum(a_SRG100_ev$Rainfall[24:27]), sum(a_SRG100_ev$Rainfall[28:31]), sum(a_SRG100_ev$Rainfall[32:35]), sum(a_SRG100_ev$Rainfall[36:39]), sum(a_SRG100_ev$Rainfall[40:41])), 
+  EventOutflow_mms=c(sum(a_SRG100_ev$`Total inflow`[1:7]) , sum(a_SRG100_ev$`Total inflow`[8:11]), sum(a_SRG100_ev$`Total inflow`[12:15]), sum(a_SRG100_ev$`Total inflow`[16:19]), sum(a_SRG100_ev$`Total inflow`[20:23]), sum(a_SRG100_ev$`Total inflow`[24:27]), sum(a_SRG100_ev$`Total inflow`[28:31]), sum(a_SRG100_ev$`Total inflow`[32:35]), sum(a_SRG100_ev$`Total inflow`[36:39]), sum(a_SRG100_ev$`Total inflow`[40:41])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_highrain_SRG100_ev <- cbind(rainhigh10events, b_SRG100_ev)
+event_highrain_SRG100_ev
+
+#SRG50_ev
+#Scenario: Filtering out relevant rows for summing later 
+a_SRG50_ev <- SRG50_ev %>% 
+  slice(4344:4350, 1950:1953, 2979:2982, 3222:3225, 4965:4968, 5730:5733, 3771:3774, 5901:5904, 6864:6867, 6727:6728) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+b_SRG50_ev <- data.frame (
+  EventRainfall_mm=c(sum(a_SRG50_ev$Rainfall[1:7]) , sum(a_SRG50_ev$Rainfall[8:11]), sum(a_SRG50_ev$Rainfall[12:15]), sum(a_SRG50_ev$Rainfall[16:19]), sum(a_SRG50_ev$Rainfall[20:23]), sum(a_SRG50_ev$Rainfall[24:27]), sum(a_SRG50_ev$Rainfall[28:31]), sum(a_SRG50_ev$Rainfall[32:35]), sum(a_SRG50_ev$Rainfall[36:39]), sum(a_SRG50_ev$Rainfall[40:41])), 
+  EventOutflow_mms=c(sum(a_SRG50_ev$`Total inflow`[1:7]) , sum(a_SRG50_ev$`Total inflow`[8:11]), sum(a_SRG50_ev$`Total inflow`[12:15]), sum(a_SRG50_ev$`Total inflow`[16:19]), sum(a_SRG50_ev$`Total inflow`[20:23]), sum(a_SRG50_ev$`Total inflow`[24:27]), sum(a_SRG50_ev$`Total inflow`[28:31]), sum(a_SRG50_ev$`Total inflow`[32:35]), sum(a_SRG50_ev$`Total inflow`[36:39]), sum(a_SRG50_ev$`Total inflow`[40:41])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_highrain_SRG50_ev <- cbind(rainhigh10events, b_SRG50_ev)
+event_highrain_SRG50_ev
+
+
+#Combining the event outflows 
+event_highrain_ALL <- event_highrain %>% 
+  mutate(GR100_Outflow= event_highrain_SGR100_ev$EventOutflow_mms, 
+         GR50_Outflow= event_highrain_SGR50_ev$EventOutflow_mms, 
+         PP100_Outflow= event_highrain_SPP100_ev$EventOutflow_mms, 
+         PP50_Outflow= event_highrain_SPP50_ev$EventOutflow_mms, 
+         RG100_Outflow= event_highrain_SRG100_ev$EventOutflow_mms, 
+         RG50_Outflow= event_highrain_SRG50_ev$EventOutflow_mms, 
+         GRPP100_Outflow= event_highrain_SGRPP100_ev$EventOutflow_mms, 
+         GRPP50_Outflow= event_highrain_SGRPP50_ev$EventOutflow_mms)
+# CONVERTING to EXCEL
+setwd("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/10 R coding/FYP_timeseries/Table_outputs")
+write.xlsx(event_highrain_ALL, "raw_highrain_Sirin", rowNames = FALSE)
+
+#Finding the reduction% 
+reduction_highrain <- event_highrain_ALL %>% 
+  mutate(
+         R_GR100 = (NoNBSOutflow_mms- GR100_Outflow)/NoNBSOutflow_mms*100 ,
+         R_GR50 = (NoNBSOutflow_mms- GR50_Outflow)/NoNBSOutflow_mms*100, 
+         R_PP100 = (NoNBSOutflow_mms- PP100_Outflow)/NoNBSOutflow_mms*100,
+         R_PP50= (NoNBSOutflow_mms- PP50_Outflow)/NoNBSOutflow_mms*100, 
+         R_RG100 = (NoNBSOutflow_mms- RG100_Outflow)/NoNBSOutflow_mms*100, 
+         R_RG50= (NoNBSOutflow_mms- RG50_Outflow)/NoNBSOutflow_mms*100, 
+         R_GRPP100 = (NoNBSOutflow_mms- GRPP100_Outflow)/NoNBSOutflow_mms*100, 
+         R_GRPP50 = (NoNBSOutflow_mms- GRPP50_Outflow)/NoNBSOutflow_mms*100)
+
+reduction_highrain <- reduction_highrain %>% select (-c('GR100_Outflow', 'GR50_Outflow', 'PP100_Outflow', 'PP50_Outflow', 'RG100_Outflow', 'RG50_Outflow', 'GRPP100_Outflow', 'GRPP50_Outflow'))
+
+reduction_highrain
+# CONVERTING TABLES TO CSV TO WORD 
+setwd("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/10 R coding/FYP_timeseries/Table_outputs")
+write.xlsx(reduction_highrain, "reduction_highrain_Sirin", rowNames = FALSE)
+```
+
+
+Low rainfall evnet 
+#SGR100_ev
+#SGR50_ev
+  
+#SGRPP100_ev
+  
+#SGRPP50_ev
+  
+#SPP100_ev
+  
+#SPP50_ev
+
+#SRG100_ev
+  
+#SRG50_ev
+
+
+```{r Low rainfall event }
+rainlowevents <- Snone_ev %>% 
+  slice(3981,1347,1482, 6018,6351,6624,6844,2856,3165,4671) %>% #slice all teh rain event start date time 
+  select(`Date/Time`) %>% 
+  mutate(Hours=c(13,7,7,7,7,7,5,4,4,4))
+
+#SPECIFIC 
+#SNONE_EV 
+#Scenario: Filtering out relevant rows for summing later 
+c <- Snone_ev %>% 
+    slice(3981:3993,1347:1353, 1482:1488,6018:6024, 6351:6357, 6624:6630, 6844:6848 , 2856:2859, 3165:3168, 4671:4674) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+d <- data.frame (
+    EventRainfall_mm=c(sum(c$Rainfall[1:13]) , sum(c$Rainfall[14:20]), sum(c$Rainfall[21:27]), sum(c$Rainfall[28:34]), sum(c$Rainfall[35:41]), sum(c$Rainfall[42:48]), sum(c$Rainfall[49:53]), sum(c$Rainfall[54:57]), sum(c$Rainfall[58:61]), sum(c$Rainfall[62:65])), 
+    NoNBSOutflow_mms=c(sum(c$`Total inflow`[1:13]) , sum(c$`Total inflow`[14:20]), sum(c$`Total inflow`[21:27]), sum(c$`Total inflow`[28:34]), sum(c$`Total inflow`[35:41]), sum(c$`Total inflow`[42:48]), sum(c$`Total inflow`[49:53]), sum(c$`Total inflow`[54:57]), sum(c$`Total inflow`[58:61]), sum(c$`Total inflow`[62:65])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+  event_lowrain <- cbind(rainlowevents, d)
+  event_lowrain
+  
+#SGR100_ev
+c_SGR100_ev <- SGR100_ev %>% 
+    slice(3981:3993,1347:1353, 1482:1488,6018:6024, 6351:6357, 6624:6630, 6844:6848 , 2856:2859, 3165:3168, 4671:4674) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+d_SGR100_ev <- data.frame (
+    EventRainfall_mm=c(sum(c_SGR100_ev$Rainfall[1:13]) , sum(c_SGR100_ev$Rainfall[14:20]), sum(c_SGR100_ev$Rainfall[21:27]), sum(c_SGR100_ev$Rainfall[28:34]), sum(c_SGR100_ev$Rainfall[35:41]), sum(c_SGR100_ev$Rainfall[42:48]), sum(c_SGR100_ev$Rainfall[49:53]), sum(c_SGR100_ev$Rainfall[54:57]), sum(c_SGR100_ev$Rainfall[58:61]), sum(c_SGR100_ev$Rainfall[62:65])), 
+    EventOutflow_mms=c(sum(c_SGR100_ev$`Total inflow`[1:13]) , sum(c_SGR100_ev$`Total inflow`[14:20]), sum(c_SGR100_ev$`Total inflow`[21:27]), sum(c_SGR100_ev$`Total inflow`[28:34]), sum(c_SGR100_ev$`Total inflow`[35:41]), sum(c_SGR100_ev$`Total inflow`[42:48]), sum(c_SGR100_ev$`Total inflow`[49:53]), sum(c_SGR100_ev$`Total inflow`[54:57]), sum(c_SGR100_ev$`Total inflow`[58:61]), sum(c_SGR100_ev$`Total inflow`[62:65])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+  event_lowrain_SGR100_ev <- cbind(rainlowevents, d_SGR100_ev)
+  event_lowrain_SGR100_ev
+  
+
+#SGR50_ev
+c_SGR50_ev <- SGR50_ev %>% 
+  slice(3981:3993,1347:1353, 1482:1488,6018:6024, 6351:6357, 6624:6630, 6844:6848 , 2856:2859, 3165:3168, 4671:4674) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+d_SGR50_ev <- data.frame (
+  EventRainfall_mm=c(sum(c_SGR50_ev$Rainfall[1:13]) , sum(c_SGR50_ev$Rainfall[14:20]), sum(c_SGR50_ev$Rainfall[21:27]), sum(c_SGR50_ev$Rainfall[28:34]), sum(c_SGR50_ev$Rainfall[35:41]), sum(c_SGR50_ev$Rainfall[42:48]), sum(c_SGR50_ev$Rainfall[49:53]), sum(c_SGR50_ev$Rainfall[54:57]), sum(c_SGR50_ev$Rainfall[58:61]), sum(c_SGR50_ev$Rainfall[62:65])), 
+  EventOutflow_mms=c(sum(c_SGR50_ev$`Total inflow`[1:13]) , sum(c_SGR50_ev$`Total inflow`[14:20]), sum(c_SGR50_ev$`Total inflow`[21:27]), sum(c_SGR50_ev$`Total inflow`[28:34]), sum(c_SGR50_ev$`Total inflow`[35:41]), sum(c_SGR50_ev$`Total inflow`[42:48]), sum(c_SGR50_ev$`Total inflow`[49:53]), sum(c_SGR50_ev$`Total inflow`[54:57]), sum(c_SGR50_ev$`Total inflow`[58:61]), sum(c_SGR50_ev$`Total inflow`[62:65])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_lowrain_SGR50_ev <- cbind(rainlowevents, d_SGR50_ev)
+event_lowrain_SGR50_ev
+
+
+#SGRPP100_ev
+c_SGRPP100_ev <- SGRPP100_ev %>% 
+  slice(3981:3993,1347:1353, 1482:1488,6018:6024, 6351:6357, 6624:6630, 6844:6848 , 2856:2859, 3165:3168, 4671:4674) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+d_SGRPP100_ev <- data.frame (
+  EventRainfall_mm=c(sum(c_SGRPP100_ev$Rainfall[1:13]) , sum(c_SGRPP100_ev$Rainfall[14:20]), sum(c_SGRPP100_ev$Rainfall[21:27]), sum(c_SGRPP100_ev$Rainfall[28:34]), sum(c_SGRPP100_ev$Rainfall[35:41]), sum(c_SGRPP100_ev$Rainfall[42:48]), sum(c_SGRPP100_ev$Rainfall[49:53]), sum(c_SGRPP100_ev$Rainfall[54:57]), sum(c_SGRPP100_ev$Rainfall[58:61]), sum(c_SGRPP100_ev$Rainfall[62:65])), 
+  EventOutflow_mms=c(sum(c_SGRPP100_ev$`Total inflow`[1:13]) , sum(c_SGRPP100_ev$`Total inflow`[14:20]), sum(c_SGRPP100_ev$`Total inflow`[21:27]), sum(c_SGRPP100_ev$`Total inflow`[28:34]), sum(c_SGRPP100_ev$`Total inflow`[35:41]), sum(c_SGRPP100_ev$`Total inflow`[42:48]), sum(c_SGRPP100_ev$`Total inflow`[49:53]), sum(c_SGRPP100_ev$`Total inflow`[54:57]), sum(c_SGRPP100_ev$`Total inflow`[58:61]), sum(c_SGRPP100_ev$`Total inflow`[62:65])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_lowrain_SGRPP100_ev <- cbind(rainlowevents, d_SGRPP100_ev)
+event_lowrain_SGRPP100_ev
+  
+
+#SGRPP50_ev
+c_SGRPP50_ev <- SGRPP50_ev %>% 
+  slice(3981:3993,1347:1353, 1482:1488,6018:6024, 6351:6357, 6624:6630, 6844:6848 , 2856:2859, 3165:3168, 4671:4674) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+d_SGRPP50_ev <- data.frame (
+  EventRainfall_mm=c(sum(c_SGRPP50_ev$Rainfall[1:13]) , sum(c_SGRPP50_ev$Rainfall[14:20]), sum(c_SGRPP50_ev$Rainfall[21:27]), sum(c_SGRPP50_ev$Rainfall[28:34]), sum(c_SGRPP50_ev$Rainfall[35:41]), sum(c_SGRPP50_ev$Rainfall[42:48]), sum(c_SGRPP50_ev$Rainfall[49:53]), sum(c_SGRPP50_ev$Rainfall[54:57]), sum(c_SGRPP50_ev$Rainfall[58:61]), sum(c_SGRPP50_ev$Rainfall[62:65])), 
+  EventOutflow_mms=c(sum(c_SGRPP50_ev$`Total inflow`[1:13]) , sum(c_SGRPP50_ev$`Total inflow`[14:20]), sum(c_SGRPP50_ev$`Total inflow`[21:27]), sum(c_SGRPP50_ev$`Total inflow`[28:34]), sum(c_SGRPP50_ev$`Total inflow`[35:41]), sum(c_SGRPP50_ev$`Total inflow`[42:48]), sum(c_SGRPP50_ev$`Total inflow`[49:53]), sum(c_SGRPP50_ev$`Total inflow`[54:57]), sum(c_SGRPP50_ev$`Total inflow`[58:61]), sum(c_SGRPP50_ev$`Total inflow`[62:65])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_lowrain_SGRPP50_ev <- cbind(rainlowevents, d_SGRPP50_ev)
+event_lowrain_SGRPP50_ev
+
+  
+#SPP100_ev
+c_SPP100_ev <- SPP100_ev %>% 
+  slice(3981:3993,1347:1353, 1482:1488,6018:6024, 6351:6357, 6624:6630, 6844:6848 , 2856:2859, 3165:3168, 4671:4674) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+d_SPP100_ev <- data.frame (
+  EventRainfall_mm=c(sum(c_SPP100_ev$Rainfall[1:13]) , sum(c_SPP100_ev$Rainfall[14:20]), sum(c_SPP100_ev$Rainfall[21:27]), sum(c_SPP100_ev$Rainfall[28:34]), sum(c_SPP100_ev$Rainfall[35:41]), sum(c_SPP100_ev$Rainfall[42:48]), sum(c_SPP100_ev$Rainfall[49:53]), sum(c_SPP100_ev$Rainfall[54:57]), sum(c_SPP100_ev$Rainfall[58:61]), sum(c_SPP100_ev$Rainfall[62:65])), 
+  EventOutflow_mms=c(sum(c_SPP100_ev$`Total inflow`[1:13]) , sum(c_SPP100_ev$`Total inflow`[14:20]), sum(c_SPP100_ev$`Total inflow`[21:27]), sum(c_SPP100_ev$`Total inflow`[28:34]), sum(c_SPP100_ev$`Total inflow`[35:41]), sum(c_SPP100_ev$`Total inflow`[42:48]), sum(c_SPP100_ev$`Total inflow`[49:53]), sum(c_SPP100_ev$`Total inflow`[54:57]), sum(c_SPP100_ev$`Total inflow`[58:61]), sum(c_SPP100_ev$`Total inflow`[62:65])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_lowrain_SPP100_ev <- cbind(rainlowevents, d_SPP100_ev)
+event_lowrain_SPP100_ev
+
+  
+#SPP50_ev
+c_SPP50_ev <- SPP50_ev %>% 
+  slice(3981:3993,1347:1353, 1482:1488,6018:6024, 6351:6357, 6624:6630, 6844:6848 , 2856:2859, 3165:3168, 4671:4674) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+d_SPP50_ev <- data.frame (
+  EventRainfall_mm=c(sum(c_SPP50_ev$Rainfall[1:13]) , sum(c_SPP50_ev$Rainfall[14:20]), sum(c_SPP50_ev$Rainfall[21:27]), sum(c_SPP50_ev$Rainfall[28:34]), sum(c_SPP50_ev$Rainfall[35:41]), sum(c_SPP50_ev$Rainfall[42:48]), sum(c_SPP50_ev$Rainfall[49:53]), sum(c_SPP50_ev$Rainfall[54:57]), sum(c_SPP50_ev$Rainfall[58:61]), sum(c_SPP50_ev$Rainfall[62:65])), 
+  EventOutflow_mms=c(sum(c_SPP50_ev$`Total inflow`[1:13]) , sum(c_SPP50_ev$`Total inflow`[14:20]), sum(c_SPP50_ev$`Total inflow`[21:27]), sum(c_SPP50_ev$`Total inflow`[28:34]), sum(c_SPP50_ev$`Total inflow`[35:41]), sum(c_SPP50_ev$`Total inflow`[42:48]), sum(c_SPP50_ev$`Total inflow`[49:53]), sum(c_SPP50_ev$`Total inflow`[54:57]), sum(c_SPP50_ev$`Total inflow`[58:61]), sum(c_SPP50_ev$`Total inflow`[62:65])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_lowrain_SPP50_ev <- cbind(rainlowevents, d_SPP50_ev)
+event_lowrain_SPP50_ev
+
+
+#SRG100_ev
+c_SRG100_ev <- SRG100_ev %>% 
+  slice(3981:3993,1347:1353, 1482:1488,6018:6024, 6351:6357, 6624:6630, 6844:6848 , 2856:2859, 3165:3168, 4671:4674) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+d_SRG100_ev <- data.frame (
+  EventRainfall_mm=c(sum(c_SRG100_ev$Rainfall[1:13]) , sum(c_SRG100_ev$Rainfall[14:20]), sum(c_SRG100_ev$Rainfall[21:27]), sum(c_SRG100_ev$Rainfall[28:34]), sum(c_SRG100_ev$Rainfall[35:41]), sum(c_SRG100_ev$Rainfall[42:48]), sum(c_SRG100_ev$Rainfall[49:53]), sum(c_SRG100_ev$Rainfall[54:57]), sum(c_SRG100_ev$Rainfall[58:61]), sum(c_SRG100_ev$Rainfall[62:65])), 
+  EventOutflow_mms=c(sum(c_SRG100_ev$`Total inflow`[1:13]) , sum(c_SRG100_ev$`Total inflow`[14:20]), sum(c_SRG100_ev$`Total inflow`[21:27]), sum(c_SRG100_ev$`Total inflow`[28:34]), sum(c_SRG100_ev$`Total inflow`[35:41]), sum(c_SRG100_ev$`Total inflow`[42:48]), sum(c_SRG100_ev$`Total inflow`[49:53]), sum(c_SRG100_ev$`Total inflow`[54:57]), sum(c_SRG100_ev$`Total inflow`[58:61]), sum(c_SRG100_ev$`Total inflow`[62:65])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_lowrain_SRG100_ev <- cbind(rainlowevents, d_SRG100_ev)
+event_lowrain_SRG100_ev
+  
+
+#SRG50_ev
+c_SRG50_ev <- SRG50_ev %>% 
+  slice(3981:3993,1347:1353, 1482:1488,6018:6024, 6351:6357, 6624:6630, 6844:6848 , 2856:2859, 3165:3168, 4671:4674) 
+#Scenario: Getting the specific Rainfall and outflow for scenario
+d_SRG50_ev <- data.frame (
+  EventRainfall_mm=c(sum(c_SRG50_ev$Rainfall[1:13]) , sum(c_SRG50_ev$Rainfall[14:20]), sum(c_SRG50_ev$Rainfall[21:27]), sum(c_SRG50_ev$Rainfall[28:34]), sum(c_SRG50_ev$Rainfall[35:41]), sum(c_SRG50_ev$Rainfall[42:48]), sum(c_SRG50_ev$Rainfall[49:53]), sum(c_SRG50_ev$Rainfall[54:57]), sum(c_SRG50_ev$Rainfall[58:61]), sum(c_SRG50_ev$Rainfall[62:65])), 
+  EventOutflow_mms=c(sum(c_SRG50_ev$`Total inflow`[1:13]) , sum(c_SRG50_ev$`Total inflow`[14:20]), sum(c_SRG50_ev$`Total inflow`[21:27]), sum(c_SRG50_ev$`Total inflow`[28:34]), sum(c_SRG50_ev$`Total inflow`[35:41]), sum(c_SRG50_ev$`Total inflow`[42:48]), sum(c_SRG50_ev$`Total inflow`[49:53]), sum(c_SRG50_ev$`Total inflow`[54:57]), sum(c_SRG50_ev$`Total inflow`[58:61]), sum(c_SRG50_ev$`Total inflow`[62:65])))
+#Scenario: Joining dataframes: of event, and sum of rainfall and outflow 
+event_lowrain_SRG50_ev <- cbind(rainlowevents, d_SRG50_ev)
+event_lowrain_SRG50_ev
+
+
+
+#Combining the event outflows 
+event_lowrain_ALL <- event_lowrain %>% 
+  mutate(GR100_Outflow= event_lowrain_SGR100_ev$EventOutflow_mms, 
+         GR50_Outflow= event_lowrain_SGR50_ev$EventOutflow_mms, 
+         PP100_Outflow= event_lowrain_SPP100_ev$EventOutflow_mms, 
+         PP50_Outflow= event_lowrain_SPP50_ev$EventOutflow_mms, 
+         RG100_Outflow= event_lowrain_SRG100_ev$EventOutflow_mms, 
+         RG50_Outflow= event_lowrain_SRG50_ev$EventOutflow_mms, 
+         GRPP100_Outflow= event_lowrain_SGRPP100_ev$EventOutflow_mms, 
+         GRPP50_Outflow= event_lowrain_SGRPP50_ev$EventOutflow_mms)
+# CONVERTING TABLES TO EXCEL
+setwd("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/10 R coding/FYP_timeseries/Table_outputs")
+write.xlsx(event_lowrain_ALL, "raw_lowrain_Sirin", rowNames = FALSE)
+
+#Finding the reduction% 
+reduction_lowrain <- event_lowrain_ALL %>% mutate(
+    R_GR100 = (NoNBSOutflow_mms- GR100_Outflow)/NoNBSOutflow_mms*100 ,
+    R_GR50 = (NoNBSOutflow_mms- GR50_Outflow)/NoNBSOutflow_mms*100, 
+    R_PP100 = (NoNBSOutflow_mms- PP100_Outflow)/NoNBSOutflow_mms*100,
+    R_PP50= (NoNBSOutflow_mms- PP50_Outflow)/NoNBSOutflow_mms*100, 
+    R_RG100 = (NoNBSOutflow_mms- RG100_Outflow)/NoNBSOutflow_mms*100, 
+    R_RG50= (NoNBSOutflow_mms- RG50_Outflow)/NoNBSOutflow_mms*100, 
+    R_GRPP100 = (NoNBSOutflow_mms- GRPP100_Outflow)/NoNBSOutflow_mms*100, 
+    R_GRPP50 = (NoNBSOutflow_mms- GRPP50_Outflow)/NoNBSOutflow_mms*100)
+
+reduction_lowrain <- reduction_lowrain %>% select (-c('GR100_Outflow', 'GR50_Outflow', 'PP100_Outflow', 'PP50_Outflow', 'RG100_Outflow', 'RG50_Outflow', 'GRPP100_Outflow', 'GRPP50_Outflow'))
+
+reduction_lowrain
+# CONVERTING TABLES TO CSV TO WORD 
+setwd("/Users/gracep/Library/CloudStorage/OneDrive-NanyangTechnologicalUniversity/FYP/10 R coding/FYP_timeseries/Table_outputs")
+write.xlsx(reduction_lowrain, "reduction_lowrain_Sirin", rowNames = FALSE)
+
+reduction_lowrain
+reduction_highrain
+```
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
